@@ -25,6 +25,11 @@ export interface DrawerOptions {
   pulseOnTime?: number;
   /** Pulse off time (0-255). Default: 250 (~500ms) */
   pulseOffTime?: number;
+  /**
+   * When true, returns an error if a virtual printer (PDF, XPS, Fax, etc.) is detected.
+   * Default: false — virtual printers silently succeed.
+   */
+  errorOnVirtualPrinter?: boolean;
 }
 
 export interface OpenCashDrawerResult {

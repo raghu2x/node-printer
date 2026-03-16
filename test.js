@@ -37,11 +37,18 @@ async function runTests() {
   console.log('Result:', emptyResult);
   console.log('');
 
-  // Test virtual printer blocking
-  console.log('Test 4: Virtual printer blocking (Microsoft Print to PDF)...');
+  // Test virtual printer - default behavior (silent success)
+  console.log('Test 4: Virtual printer default behavior (silent success)...');
   const virtualResult = await openCashDrawer('Microsoft Print to PDF');
   console.log('Result:', virtualResult);
-  console.log('Expected: errorCode 1008 (virtual printer blocked)');
+  console.log('Expected: success true, errorCode 0 (silent success by default)');
+  console.log('');
+
+  // Test virtual printer - errorOnVirtualPrinter: true
+  console.log('Test 5: Virtual printer with errorOnVirtualPrinter: true...');
+  const virtualErrorResult = await openCashDrawer('Microsoft Print to PDF', { errorOnVirtualPrinter: true });
+  console.log('Result:', virtualErrorResult);
+  console.log('Expected: success false, errorCode 1008 (virtual printer blocked)');
   console.log('');
 
   console.log('All tests completed.');
