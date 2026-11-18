@@ -9,24 +9,77 @@ static const unsigned char DEFAULT_DRAWER_PIN = 0x00;      // Pin 0 (some drawer
 static const unsigned char DEFAULT_PULSE_ON_TIME = 0x32;   // ~100ms
 static const unsigned char DEFAULT_PULSE_OFF_TIME = 0xFA;  // ~500ms
 
+// Printer command language used for the drawer kick.
+// Star Micronics printers in their native emulations (Star Line Mode, StarPRNT,
+// Star Graphic) do not understand the ESC/POS "ESC p" command.
+enum DrawerCommandSet {
+    COMMAND_SET_AUTO,    // Detect from the printer name / driver / model
+    COMMAND_SET_ESCPOS,  // ESC p m t1 t2
+    COMMAND_SET_STAR     // BEL (drawer 1) / SUB (drawer 2)
+};
+
 struct DrawerConfig {
     unsigned char pin;
     unsigned char pulseOnTime;
     unsigned char pulseOffTime;
+    DrawerCommandSet commandSet;
 
     DrawerConfig()
         : pin(DEFAULT_DRAWER_PIN)
         , pulseOnTime(DEFAULT_PULSE_ON_TIME)
-        , pulseOffTime(DEFAULT_PULSE_OFF_TIME) {}
+        , pulseOffTime(DEFAULT_PULSE_OFF_TIME)
+        , commandSet(COMMAND_SET_AUTO) {}
 
-    DrawerConfig(unsigned char p, unsigned char onTime, unsigned char offTime)
-        : pin(p), pulseOnTime(onTime), pulseOffTime(offTime) {}
-
-    // Build the ESC/POS command for opening the drawer
-    std::vector<unsigned char> buildCommand() const {
+    // Build the drawer kick command for an already resolved (non-auto) command set
+    std::vector<unsigned char> buildCommand(DrawerCommandSet resolved) const {
+        if (resolved == COMMAND_SET_STAR) {
+            // ESC/POS accepts 1 or '1' (0x31) for the second drawer pin
+            bool secondDrawer = (pin == 0x01 || pin == 0x31);
+            if (secondDrawer) {
+                // SUB: drive external device 2 (fixed 200ms pulse)
+                return { 0x1A };
+            }
+            // ESC BEL n1 n2: set device 1 pulse width (units of 10ms, 1-127),
+            // then BEL: drive external device 1.
+            // pulseOnTime/pulseOffTime are in ESC/POS units of 2ms.
+            return { 0x1B, 0x07, starPulseUnits(pulseOnTime), starPulseUnits(pulseOffTime), 0x07 };
+        }
         return { 0x1B, 0x70, pin, pulseOnTime, pulseOffTime };
     }
+
+private:
+    static unsigned char starPulseUnits(unsigned char escposUnits) {
+        int units = (escposUnits * 2 + 5) / 10;
+        if (units < 1) units = 1;
+        if (units > 127) units = 127;
+        return static_cast<unsigned char>(units);
+    }
 };
+
+// True if "star" appears as a whole word (e.g. "Star TSP100", "Star_TSP143",
+// "STAR mC-Print3") but not inside another word (e.g. "Starter").
+static bool looksLikeStarPrinter(const std::string& text) {
+    std::string lower = toLowercase(text);
+    size_t pos = 0;
+    while ((pos = lower.find("star", pos)) != std::string::npos) {
+        bool startOk = (pos == 0) || !std::isalnum(static_cast<unsigned char>(lower[pos - 1]));
+        size_t end = pos + 4;
+        bool endOk = (end >= lower.size()) || !std::isalnum(static_cast<unsigned char>(lower[end]));
+        if (startOk && endOk) return true;
+        pos = end;
+    }
+    return false;
+}
+
+static DrawerCommandSet resolveCommandSet(const DrawerConfig& config,
+                                          const std::string& printerName,
+                                          const std::string& driverOrModel) {
+    if (config.commandSet != COMMAND_SET_AUTO) return config.commandSet;
+    if (looksLikeStarPrinter(printerName) || looksLikeStarPrinter(driverOrModel)) {
+        return COMMAND_SET_STAR;
+    }
+    return COMMAND_SET_ESCPOS;
+}
 
 // ============================================================================
 // Windows RAII Printer Handle
@@ -48,6 +101,19 @@ public:
             return false;
         }
         return true;
+    }
+
+    // Returns the printer driver name, or an empty string if unavailable
+    std::string driverName() const {
+        DWORD needed = 0;
+        GetPrinterA(handle_, 2, NULL, 0, &needed);
+        if (needed == 0) return std::string();
+
+        std::vector<BYTE> buffer(needed);
+        if (!GetPrinterA(handle_, 2, buffer.data(), needed, &needed)) return std::string();
+
+        const PRINTER_INFO_2A* info = reinterpret_cast<const PRINTER_INFO_2A*>(buffer.data());
+        return info->pDriverName ? std::string(info->pDriverName) : std::string();
     }
 
     bool startDoc(const char* docName, DWORD* errorCode) {
@@ -139,7 +205,7 @@ static OperationResult open_cash_drawer(const std::string& printerName, const Dr
         return result;
     }
 
-    std::vector<unsigned char> escposCommand = config.buildCommand();
+    std::vector<unsigned char> escposCommand;
 
 #ifdef _WIN32
     PrinterHandle printer;
@@ -153,6 +219,9 @@ static OperationResult open_cash_drawer(const std::string& printerName, const Dr
         );
         return result;
     }
+
+    escposCommand = config.buildCommand(
+        resolveCommandSet(config, printerName, printer.driverName()));
 
     if (!printer.startDoc("Open Cash Drawer", &winError)) {
         result.setError(
@@ -202,6 +271,10 @@ static OperationResult open_cash_drawer(const std::string& printerName, const Dr
         cupsFreeDests(num_dests, dests);
         return result;
     }
+
+    const char* makeAndModel = cupsGetOption("printer-make-and-model", dest->num_options, dest->options);
+    escposCommand = config.buildCommand(
+        resolveCommandSet(config, printerName, makeAndModel ? makeAndModel : ""));
 
     // Create a temporary file for the command
     char tempFile[] = "/tmp/drawer_cmd_XXXXXX";
@@ -332,6 +405,27 @@ static bool ParseDrawerConfig(napi_env env, napi_value options, DrawerConfig& co
         }
     }
 
+    bool has_command_set;
+    napi_has_named_property(env, options, "commandSet", &has_command_set);
+    if (has_command_set) {
+        napi_value command_set_value;
+        napi_get_named_property(env, options, "commandSet", &command_set_value);
+        napi_valuetype command_set_type;
+        napi_typeof(env, command_set_value, &command_set_type);
+        if (command_set_type == napi_string) {
+            char buffer[16] = {0};
+            size_t length = 0;
+            napi_get_value_string_utf8(env, command_set_value, buffer, sizeof(buffer), &length);
+            std::string commandSet = toLowercase(std::string(buffer, length));
+            if (commandSet == "auto") config.commandSet = COMMAND_SET_AUTO;
+            else if (commandSet == "escpos") config.commandSet = COMMAND_SET_ESCPOS;
+            else if (commandSet == "star") config.commandSet = COMMAND_SET_STAR;
+            else return false;
+        } else if (command_set_type != napi_undefined && command_set_type != napi_null) {
+            return false;
+        }
+    }
+
     return true;
 }
 
@@ -359,7 +453,7 @@ napi_value OpenCashDrawer(napi_env env, napi_callback_info info) {
     DrawerConfig config;
     if (argc >= 2) {
         if (!ParseDrawerConfig(env, args[1], config)) {
-            napi_throw_error(env, nullptr, "Invalid options: pin, pulseOnTime, pulseOffTime must be 0-255");
+            napi_throw_error(env, nullptr, "Invalid options: pin, pulseOnTime, pulseOffTime must be 0-255 and commandSet must be 'auto', 'escpos' or 'star'");
             return nullptr;
         }
     }

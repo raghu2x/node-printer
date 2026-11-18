@@ -26,6 +26,14 @@ export interface DrawerOptions {
   /** Pulse off time (0-255). Default: 250 (~500ms) */
   pulseOffTime?: number;
   /**
+   * Command language used to kick the drawer. Default: "auto".
+   * - "auto": uses Star commands when the printer name, driver or model identifies
+   *   a Star Micronics printer, ESC/POS otherwise.
+   * - "escpos": `ESC p` (Epson and compatibles, or Star printers set to ESC/POS emulation).
+   * - "star": `BEL` / `SUB` (Star Line Mode, StarPRNT, Star Graphic).
+   */
+  commandSet?: "auto" | "escpos" | "star";
+  /**
    * When true, returns an error if a virtual printer (PDF, XPS, Fax, etc.) is detected.
    * Default: false — virtual printers silently succeed.
    */

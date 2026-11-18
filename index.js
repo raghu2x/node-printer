@@ -10,6 +10,7 @@ const { PrinterErrorCodes } = bindings;
  * @param {number} [options.pin=0] - Drawer pin (0 or 1).
  * @param {number} [options.pulseOnTime=50] - Pulse on time (0-255).
  * @param {number} [options.pulseOffTime=250] - Pulse off time (0-255).
+ * @param {"auto"|"escpos"|"star"} [options.commandSet="auto"] - Drawer command language. "auto" uses Star commands for Star Micronics printers and ESC/POS otherwise.
  * @param {boolean} [options.errorOnVirtualPrinter=false] - If true, return an error when a virtual printer is detected. Defaults to false (success).
  * @returns {Promise<{success: boolean, errorCode: number, errorMessage: string}>}
  */

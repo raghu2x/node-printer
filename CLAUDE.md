@@ -40,6 +40,7 @@ npm run clean
 
 ### Key Implementation Details
 - ESC/POS command format: `[0x1B, 0x70, pin, pulseOnTime, pulseOffTime]`
+- Star command format (`commandSet: 'star'`, or auto-detected from printer name/driver/model): `[0x1B, 0x07, n1, n2, 0x07]` for drawer 1, `[0x1A]` for drawer 2
 - Virtual printers (PDF, XPS, Fax) are blocked in the native layer (`BLOCKED_VIRTUAL_PRINTERS` list)
 - `openCashDrawer` is async and returns a Promise with `{success, errorCode, errorMessage}`
 - `getAvailablePrinters` uses `wmic` on Windows (synchronous, Windows-only currently)

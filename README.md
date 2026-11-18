@@ -81,6 +81,10 @@ Opens the cash drawer connected to the specified printer.
   - `pin` (number) - Drawer pin (0 or 1). Default: 0
   - `pulseOnTime` (number) - Pulse on time (0-255). Default: 50 (~100ms)
   - `pulseOffTime` (number) - Pulse off time (0-255). Default: 250 (~500ms)
+  - `commandSet` (`"auto"` | `"escpos"` | `"star"`) - Command language used to kick the drawer. Default: `"auto"`
+    - `"auto"` - uses Star commands when the printer name, driver or model identifies a Star Micronics printer, ESC/POS otherwise
+    - `"escpos"` - `ESC p` (Epson and compatibles, or Star printers set to ESC/POS emulation)
+    - `"star"` - `BEL` / `SUB` (Star Line Mode, StarPRNT, Star Graphic)
 
 **Returns:** `Promise<OpenCashDrawerResult>` - A promise that resolves to an object with:
   - `success` (boolean): Indicates whether the cash drawer opened successfully.
@@ -180,6 +184,8 @@ This package has been tested with printers that support ESC/POS commands, such a
 
 - EPSON TM Series
 - Star TSP Series
+
+Star Micronics printers in their native emulations do not understand the ESC/POS drawer command. They are detected automatically from the printer name, driver or model. If your Star printer is renamed so that detection fails, pass `commandSet: 'star'`; if it is switched to ESC/POS emulation, pass `commandSet: 'escpos'`.
 
 ## Contributing
 
